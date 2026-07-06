@@ -37,6 +37,23 @@ def run_scrape(config: ScraperConfig) -> list[Job]:
 
     jobs_df = scrape_jobs(**kwargs)
 
+    rows = jobs_df.to_dict(orient="records")
+    print(f"[debug] rows: {len(rows)}")
+    if rows:
+        first = rows[0]
+        print("[debug] top-level keys:", sorted(first.keys()))
+        print("[debug] location type:", type(first.get("location")))
+        print("[debug] location value:", first.get("location"))
+        if isinstance(first.get("location"), dict):
+            print("[debug] location keys:", sorted(first["location"].keys()))
+        print("[debug] city/state/country top-level:",
+            first.get("city"), first.get("state"), first.get("country"))
+        print("[debug] salary top-level:",
+            first.get("min_amount"), first.get("max_amount"),
+            first.get("currency"), first.get("salary_source"))
+        print("[debug] job_function type/value:",
+            type(first.get("job_function")), first.get("job_function"))
+
     seen_urls: set[str] = set()
     jobs: list[Job] = []
     for row in jobs_df.to_dict(orient="records"):

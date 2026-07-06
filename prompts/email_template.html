@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Digest</title>
+    <style>
+      body { font-family: Arial, sans-serif; line-height: 1.5; color: #222; }
+      h1 { margin-bottom: 0.2rem; }
+      h2 { margin-top: 1.5rem; border-bottom: 1px solid #ddd; padding-bottom: 0.2rem; }
+      .muted { color: #666; }
+      .job { margin: 0.8rem 0 1.2rem; }
+      .meta { font-size: 0.95rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Job Digest</h1>
+    <p class="muted">{{ digest_date }}</p>
+    <p>
+      {{ summary.good_fit }} good fit(s),
+      {{ summary.medium_fit }} medium fit(s),
+      {{ summary.bad_fit }} bad fit(s)
+    </p>
+
+    {% for section in sections %}
+      {% if section.jobs %}
+        <h2>{{ section.title }} ({{ section.jobs|length }})</h2>
+        {% for job in section.jobs %}
+          <div class="job">
+            <div><a href="{{ job.url }}"><strong>{{ job.title }}</strong></a></div>
+            <div class="meta">{{ job.company }} • {{ job.location.display or "Unknown location" }}</div>
+            <div class="meta">
+              Salary:
+              {% if job.salary.minimum or job.salary.maximum %}
+                {{ job.salary.minimum or "?" }} - {{ job.salary.maximum or "?" }} {{ job.salary.currency or "" }}
+              {% else %}
+                Not listed
+              {% endif %}
+            </div>
+            <div class="meta">Posted: {{ job.posted or "Unknown date" }}{% if job.job_level %} • Level: {{ job.job_level }}{% endif %}</div>
+            <div><em>{{ job.reason }}</em></div>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+  </body>
+</html>

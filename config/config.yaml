@@ -1,0 +1,38 @@
+scraper:
+  site_name: linkedin
+  location: San Francisco
+  search_term: "data scientist OR machine learning OR ai engineer OR ml engineer OR data engineer OR python OR sql"
+  results_wanted: 50
+  distance: 50
+  is_remote: null
+  hours_old: 48
+  linkedin_fetch_description: true
+  enforce_annual_salary: null
+  description_format: markdown
+
+filters:
+  hard:
+    countries: [United States]
+    keywords_exclude: [staff, principal, director]
+    banned_companies: [Dice]
+    require_us_location: true
+
+  ideal:
+    locations: [Seattle, San Francisco, Remote]
+    salary:
+      minimum: 50000
+      maximum: 250000
+    max_years_experience: 3
+
+llm:
+  provider: groq
+  model: llama-3.3-70b-versatile
+  batch_size: 20
+
+email:
+  recipient: yablonskic5@gmail.com
+  sender: yablonskic5@gmail.com
+
+schedule:
+  timezone: America/Los_Angeles
+  time: "08:00"

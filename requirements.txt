@@ -1,0 +1,6 @@
+python-jobspy
+groq
+PyYAML
+pydantic
+pypdf
+Jinja2

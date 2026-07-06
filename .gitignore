@@ -219,3 +219,6 @@ __marimo__/
 
 # Runtime pipeline artifacts
 data/*.json
+
+# Mac
+.DS_Store

@@ -27,7 +27,7 @@ filters:
 llm:
   provider: groq
   model: llama-3.3-70b-versatile
-  batch_size: 20
+  batch_size: 2
 
 email:
   recipient: yablonskic5@gmail.com

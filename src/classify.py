@@ -5,8 +5,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import time
 
-from groq import Groq
+from groq import APIStatusError, Groq
 from pypdf import PdfReader
 
 from src.config import IdealFilterConfig, LLMConfig
@@ -65,7 +66,7 @@ def classify_jobs(
 
     for chunk in _chunk(jobs, llm.batch_size):
         payload = json.dumps([_job_for_prompt(job) for job in chunk], ensure_ascii=False)
-        response = _request_classification(client, llm.model, system_prompt, payload)
+        response = _request_with_backoff(client, llm.model, system_prompt, payload)
         for item in response.classifications:
             job = by_id.get(item.id)
             if not job:
@@ -112,6 +113,31 @@ def _request_classification(client: Groq, model: str, system_prompt: str, payloa
     raise ValueError("LLM response could not be parsed as ClassificationResponse after one retry.")
 
 
+def _request_with_backoff(
+    client: Groq,
+    model: str,
+    system_prompt: str,
+    payload: str,
+    max_retries: int = 5,
+) -> ClassificationResponse:
+    delay_s = 3.0
+
+    for attempt in range(max_retries + 1):
+        try:
+            return _request_classification(client, model, system_prompt, payload)
+        except APIStatusError as exc:
+            # Groq rate-limit/TPM style failure
+            if exc.status_code in {413, 429} and attempt < max_retries:
+                print(
+                    f"[warn] Groq rate limit (status {exc.status_code}) "
+                    f"attempt {attempt + 1}/{max_retries + 1}; sleeping {delay_s:.1f}s"
+                )
+                time.sleep(delay_s)
+                delay_s = min(delay_s * 2, 60.0)  # exponential backoff, capped
+                continue
+            raise
+
+
 def _chat_completion(client: Groq, model: str, system_prompt: str, payload: str) -> str:
     completion = client.chat.completions.create(
         model=model,
@@ -145,8 +171,8 @@ def _parse_response(response_text: str) -> ClassificationResponse | None:
 
 def _job_for_prompt(job: Job) -> dict[str, Any]:
     description = job.description or ""
-    if len(description) > 2000:
-        description = description[:2000]
+    if len(description) > 5000:
+        description = description[:5000]
 
     return {
         "id": job.id,

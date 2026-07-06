@@ -17,6 +17,59 @@ EMPLOYMENT_TYPE_MAP = {
     "contract": "Contract",
 }
 
+US_STATE_CODES = {
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+}
+
 
 def run_scrape(config: ScraperConfig) -> list[Job]:
     kwargs: dict[str, Any] = {
@@ -38,25 +91,9 @@ def run_scrape(config: ScraperConfig) -> list[Job]:
     jobs_df = scrape_jobs(**kwargs)
 
     rows = jobs_df.to_dict(orient="records")
-    print(f"[debug] rows: {len(rows)}")
-    if rows:
-        first = rows[0]
-        print("[debug] top-level keys:", sorted(first.keys()))
-        print("[debug] location type:", type(first.get("location")))
-        print("[debug] location value:", first.get("location"))
-        if isinstance(first.get("location"), dict):
-            print("[debug] location keys:", sorted(first["location"].keys()))
-        print("[debug] city/state/country top-level:",
-            first.get("city"), first.get("state"), first.get("country"))
-        print("[debug] salary top-level:",
-            first.get("min_amount"), first.get("max_amount"),
-            first.get("currency"), first.get("salary_source"))
-        print("[debug] job_function type/value:",
-            type(first.get("job_function")), first.get("job_function"))
-
     seen_urls: set[str] = set()
     jobs: list[Job] = []
-    for row in jobs_df.to_dict(orient="records"):
+    for row in rows:
         job = _normalize_row(row)
         if not job or job.url in seen_urls:
             continue
@@ -96,17 +133,40 @@ def _job_id(url: str) -> str:
 
 def _parse_location(row: dict[str, Any]) -> Location:
     location_payload = row.get("location")
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    display = ""
+
     if isinstance(location_payload, dict):
         city = _as_str(location_payload.get("city"))
         state = _as_str(location_payload.get("state"))
         country = _as_str(location_payload.get("country"))
-    else:
+        display = _as_str(location_payload.get("display")) or ""
+    elif isinstance(location_payload, str):
+        display = location_payload.strip()
+        if "," in display:
+            left, right = [part.strip() for part in display.split(",", 1)]
+            city = left or None
+            state = right or None
+        else:
+            city = display or None
+
+    if not city:
         city = _as_str(row.get("city"))
+    if not state:
         state = _as_str(row.get("state"))
+    if not country:
         country = _as_str(row.get("country"))
+
+    # Infer US country from 2-letter state codes for LinkedIn-style locations.
+    if not country and state and state.upper() in US_STATE_CODES:
+        country = "United States"
+
     is_remote = bool(row.get("is_remote"))
-    parts = [part for part in [city, state, country] if part]
-    display = ", ".join(parts)
+    if not display:
+        parts = [part for part in [city, state, country] if part]
+        display = ", ".join(parts)
     if is_remote and display:
         display = f"{display} (Remote)"
     elif is_remote:
@@ -169,6 +229,8 @@ def _as_str(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null"}:
+        return None
     return text if text else None
 
 

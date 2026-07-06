@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ScraperConfig(BaseModel):
     site_name: Literal["linkedin"] = "linkedin"
-    location: str
+    locations: list[str]
     search_term: str
     results_wanted: int = 50
     distance: int = 50
@@ -18,6 +18,18 @@ class ScraperConfig(BaseModel):
     linkedin_fetch_description: bool = True
     enforce_annual_salary: bool | None = None
     description_format: Literal["markdown", "html"] = "markdown"
+    include_remote_pass: bool = True
+    remote_location_seed: str = "United States"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_single_location(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "locations" not in data and "location" in data:
+            single_location = data.get("location")
+            data["locations"] = [single_location] if single_location else []
+        return data
 
 
 class HardFilterConfig(BaseModel):

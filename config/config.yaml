@@ -1,6 +1,8 @@
 scraper:
   site_name: linkedin
-  location: San Francisco
+  locations:
+    - San Francisco, CA
+    - Seattle, WA
   search_term: "data scientist OR machine learning OR ai engineer OR ml engineer OR data engineer OR python OR sql"
   results_wanted: 50
   distance: 50
@@ -9,6 +11,8 @@ scraper:
   linkedin_fetch_description: true
   enforce_annual_salary: null
   description_format: markdown
+  include_remote_pass: true
+  remote_location_seed: United States
 
 filters:
   hard:
@@ -18,10 +22,10 @@ filters:
     require_us_location: true
 
   ideal:
-    locations: [Seattle, San Francisco, Remote]
+    locations: [San Francisco, Remote]
     salary:
       minimum: 50000
-      maximum: 250000
+      maximum: 200000
     max_years_experience: 3
 
 llm:
@@ -32,7 +36,3 @@ llm:
 email:
   recipient: yablonskic5@gmail.com
   sender: yablonskic5@gmail.com
-
-schedule:
-  timezone: America/Los_Angeles
-  time: "08:00"

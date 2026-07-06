@@ -72,10 +72,9 @@ US_STATE_CODES = {
 
 
 def run_scrape(config: ScraperConfig) -> list[Job]:
-    kwargs: dict[str, Any] = {
+    base_kwargs: dict[str, Any] = {
         "site_name": [config.site_name],
         "search_term": config.search_term,
-        "location": config.location,
         "distance": config.distance,
         "results_wanted": config.results_wanted,
         "hours_old": config.hours_old,
@@ -83,14 +82,27 @@ def run_scrape(config: ScraperConfig) -> list[Job]:
         "description_format": config.description_format,
         "verbose": 1,
     }
-    if config.is_remote is not None:
-        kwargs["is_remote"] = config.is_remote
     if config.enforce_annual_salary is not None:
-        kwargs["enforce_annual_salary"] = config.enforce_annual_salary
+        base_kwargs["enforce_annual_salary"] = config.enforce_annual_salary
 
-    jobs_df = scrape_jobs(**kwargs)
+    rows: list[dict[str, Any]] = []
 
-    rows = jobs_df.to_dict(orient="records")
+    for location in config.locations:
+        kwargs = {**base_kwargs, "location": location}
+        if config.is_remote is not None:
+            kwargs["is_remote"] = config.is_remote
+        jobs_df = scrape_jobs(**kwargs)
+        rows.extend(jobs_df.to_dict(orient="records"))
+
+    if config.include_remote_pass and config.is_remote is not False:
+        remote_kwargs = {
+            **base_kwargs,
+            "location": config.remote_location_seed,
+            "is_remote": True,
+        }
+        remote_df = scrape_jobs(**remote_kwargs)
+        rows.extend(remote_df.to_dict(orient="records"))
+
     seen_urls: set[str] = set()
     jobs: list[Job] = []
     for row in rows:

@@ -29,7 +29,8 @@ Edit `config/config.yaml`.
 Key settings:
 
 - `scraper.search_term`: combined keyword query
-- `scraper.location`: single search location
+- `scraper.locations`: list of search locations (scraper loops over all)
+- `scraper.include_remote_pass`: run a dedicated remote-only scrape call
 - `filters.hard`: deterministic drop rules
 - `filters.ideal`: preference ranges passed to the LLM for demotion guidance
 - `llm.model`: Groq model name

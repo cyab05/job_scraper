@@ -7,7 +7,7 @@ scraper:
   results_wanted: 50
   distance: 50
   is_remote: null
-  hours_old: 48
+  hours_old: 24
   linkedin_fetch_description: true
   enforce_annual_salary: null
   description_format: markdown
@@ -18,7 +18,7 @@ filters:
   hard:
     countries: [United States]
     keywords_exclude: [staff, principal, director]
-    banned_companies: [Dice]
+    banned_companies: [Dice, Jack & Jill]
     require_us_location: true
 
   ideal:

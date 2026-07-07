@@ -30,7 +30,7 @@ filters:
 
 llm:
   provider: gemini
-  model: gemini-2.0-flash-lite
+  model: gemini-3-flash
   max_token_batch: 200000
   batch_interval_seconds: 60
 

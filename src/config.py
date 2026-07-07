@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class ScraperConfig(BaseModel):
@@ -76,7 +76,9 @@ class AppConfig(BaseModel):
     filters: FiltersConfig
     llm: LLMConfig
     email: EmailConfig
-    schedule: ScheduleConfig
+    schedule: ScheduleConfig = Field(
+        default_factory=lambda: ScheduleConfig(timezone="America/Los_Angeles", time="08:00")
+    )
 
 
 def load_config(path: Path) -> AppConfig:

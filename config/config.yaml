@@ -29,9 +29,10 @@ filters:
     max_years_experience: 3
 
 llm:
-  provider: groq
-  model: llama-3.3-70b-versatile
-  batch_size: 2
+  provider: gemini
+  model: gemini-2.0-flash-lite
+  max_token_batch: 200000
+  batch_interval_seconds: 60
 
 email:
   recipient: yablonskic5@gmail.com

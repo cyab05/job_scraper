@@ -4,7 +4,7 @@ This project runs a daily GitHub Actions workflow that:
 
 1. Scrapes LinkedIn jobs with `python-jobspy`
 2. Applies deterministic hard filters
-3. Classifies remaining jobs with Groq into `good_fit`, `medium_fit`, `bad_fit`, or `not_relevant`
+3. Classifies remaining jobs with Google Gemini into `good_fit`, `medium_fit`, `bad_fit`, or `not_relevant`
 4. Sends an HTML digest email through Gmail SMTP
 
 ## Project layout
@@ -33,7 +33,9 @@ Key settings:
 - `scraper.include_remote_pass`: run a dedicated remote-only scrape call
 - `filters.hard`: deterministic drop rules
 - `filters.ideal`: preference ranges passed to the LLM for demotion guidance
-- `llm.model`: Groq model name
+- `llm.model`: Gemini model name
+- `llm.max_token_batch`: max input tokens per Gemini request (set to `100000` for 100k TPM pacing)
+- `llm.batch_interval_seconds`: wait time between Gemini batches (use `60`)
 - `email.recipient`: where digest emails are sent
 
 ### 3) Install dependencies
@@ -45,7 +47,7 @@ pip install -r requirements.txt
 ### 4) Set environment variables
 
 ```bash
-export GROQ_API_KEY="your_groq_key"
+export GEMINI_API_KEY="your_gemini_key"
 export GMAIL_ADDRESS="your_gmail_address"
 export GMAIL_APP_PASSWORD="your_google_app_password"
 ```
@@ -70,7 +72,7 @@ Workflow: `.github/workflows/scrape.yml`
 
 ## Required GitHub secrets
 
-- `GROQ_API_KEY`
+- `GEMINI_API_KEY`
 - `GMAIL_ADDRESS`
 - `GMAIL_APP_PASSWORD`
 
@@ -78,4 +80,4 @@ Workflow: `.github/workflows/scrape.yml`
 
 - LinkedIn applicant counts are not included by `python-jobspy`, so applicant-based filtering is not implemented.
 - Scraping reliability can vary based on LinkedIn anti-bot behavior and CI IP reputation.
-- Large job batches may require prompt truncation and chunking; this is handled with `llm.batch_size`.
+- Large job sets are dynamically packed into token-aware Gemini batches (up to `llm.max_token_batch`) and paced with `llm.batch_interval_seconds` between requests.

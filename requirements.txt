@@ -1,5 +1,5 @@
 python-jobspy
-groq
+google-genai
 PyYAML
 pydantic
 pypdf

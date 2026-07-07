@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 import time
 
-from groq import APIStatusError, Groq
+from google import genai
+from google.genai import errors, types
 from pypdf import PdfReader
 
 from src.config import IdealFilterConfig, LLMConfig
@@ -19,6 +20,9 @@ from src.models import (
     ClassificationResponse,
     Job,
 )
+
+MAX_INPUT_TOKENS_PER_BATCH = 100_000
+BATCH_INTERVAL_SECONDS = 60
 
 
 def extract_resume_text(resume_path: Path) -> str:
@@ -53,19 +57,34 @@ def classify_jobs(
     if not jobs:
         return ClassifiedJobsOutput(classified_at=datetime.now(), summary=_empty_summary(), jobs=[])
 
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing required environment variable: GROQ_API_KEY")
+        raise RuntimeError("Missing required environment variable: GEMINI_API_KEY")
 
     resume_text = extract_resume_text(resume_path)
     system_prompt = load_system_prompt(prompt_template_path, resume_text, ideal)
-    client = Groq(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     by_id: dict[str, Job] = {job.id: job for job in jobs}
     classified_jobs: list[ClassifiedJob] = []
+    prompt_jobs = [(job, _job_for_prompt(job)) for job in jobs]
+    max_tokens = getattr(llm, "max_token_batch", MAX_INPUT_TOKENS_PER_BATCH) or MAX_INPUT_TOKENS_PER_BATCH
+    wait_seconds = getattr(llm, "batch_interval_seconds", BATCH_INTERVAL_SECONDS) or BATCH_INTERVAL_SECONDS
 
-    for chunk in _chunk(jobs, llm.batch_size):
-        payload = json.dumps([_job_for_prompt(job) for job in chunk], ensure_ascii=False)
+    batches = _build_token_limited_batches(
+        client=client,
+        model=llm.model,
+        system_prompt=system_prompt,
+        prompt_jobs=prompt_jobs,
+        max_input_tokens=max_tokens,
+    )
+
+    for index, (chunk, token_count) in enumerate(batches):
+        payload = json.dumps([item for _, item in chunk], ensure_ascii=False)
+        print(
+            f"[info] Sending Gemini batch {index + 1}/{len(batches)} "
+            f"({len(chunk)} jobs, {token_count} input tokens)"
+        )
         response = _request_with_backoff(client, llm.model, system_prompt, payload)
         for item in response.classifications:
             job = by_id.get(item.id)
@@ -80,6 +99,9 @@ def classify_jobs(
                     reason=item.reason.strip(),
                 )
             )
+        if index < len(batches) - 1:
+            print(f"[info] Waiting {wait_seconds}s before next Gemini batch.")
+            time.sleep(wait_seconds)
 
     # Any missing IDs default to not_relevant to keep output stable.
     classified_ids = {job.id for job in classified_jobs}
@@ -99,7 +121,9 @@ def classify_jobs(
     return ClassifiedJobsOutput(classified_at=datetime.now(), summary=summary, jobs=classified_jobs)
 
 
-def _request_classification(client: Groq, model: str, system_prompt: str, payload: str) -> ClassificationResponse:
+def _request_classification(
+    client: genai.Client, model: str, system_prompt: str, payload: str
+) -> ClassificationResponse:
     response_text = _chat_completion(client, model, system_prompt, payload)
     parsed = _parse_response(response_text)
     if parsed:
@@ -114,40 +138,46 @@ def _request_classification(client: Groq, model: str, system_prompt: str, payloa
 
 
 def _request_with_backoff(
-    client: Groq,
+    client: genai.Client,
     model: str,
     system_prompt: str,
     payload: str,
     max_retries: int = 5,
 ) -> ClassificationResponse:
-    delay_s = 3.0
+    delay_s = 60
 
     for attempt in range(max_retries + 1):
         try:
             return _request_classification(client, model, system_prompt, payload)
-        except APIStatusError as exc:
-            # Groq rate-limit/TPM style failure
-            if exc.status_code in {413, 429} and attempt < max_retries:
+        except errors.APIError as exc:
+            # Gemini rate-limit (429) / transient server (5xx) failure
+            retryable = exc.code == 429 or (exc.code is not None and exc.code >= 500)
+            if retryable and attempt < max_retries:
                 print(
-                    f"[warn] Groq rate limit (status {exc.status_code}) "
-                    f"attempt {attempt + 1}/{max_retries + 1}; sleeping {delay_s:.1f}s"
+                    f"[warn] Gemini error status={exc.code} ({exc.status}); "
+                    f"message={exc.message}"
+                )
+                if exc.details:
+                    print(f"[warn] Gemini error details: {exc.details}")
+                print(
+                    f"[warn] attempt {attempt + 1}/{max_retries + 1}; sleeping {delay_s:.1f}s"
                 )
                 time.sleep(delay_s)
-                delay_s = min(delay_s * 2, 60.0)  # exponential backoff, capped
                 continue
             raise
 
 
-def _chat_completion(client: Groq, model: str, system_prompt: str, payload: str) -> str:
-    completion = client.chat.completions.create(
+def _chat_completion(client: genai.Client, model: str, system_prompt: str, payload: str) -> str:
+    completion = client.models.generate_content(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": payload},
-        ],
-        temperature=0.1,
+        contents=payload,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.1,
+            response_mime_type="application/json",
+        ),
     )
-    content = completion.choices[0].message.content
+    content = completion.text
     if not content:
         raise ValueError("Empty response from LLM.")
     return content.strip()
@@ -186,10 +216,99 @@ def _job_for_prompt(job: Job) -> dict[str, Any]:
     }
 
 
-def _chunk(items: list[Job], chunk_size: int) -> list[list[Job]]:
-    if chunk_size <= 0:
-        return [items]
-    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+def _build_token_limited_batches(
+    client: genai.Client,
+    model: str,
+    system_prompt: str,
+    prompt_jobs: list[tuple[Job, dict[str, Any]]],
+    max_input_tokens: int,
+) -> list[tuple[list[tuple[Job, dict[str, Any]]], int]]:
+    if not prompt_jobs:
+        return []
+
+    token_cap = max(1, max_input_tokens)
+    batches: list[tuple[list[tuple[Job, dict[str, Any]]], int]] = []
+    cursor = 0
+
+    while cursor < len(prompt_jobs):
+        batch: list[tuple[Job, dict[str, Any]]] = []
+
+        while cursor < len(prompt_jobs):
+            candidate = batch + [prompt_jobs[cursor]]
+            payload = json.dumps([item for _, item in candidate], ensure_ascii=False)
+            # Estimate locally to avoid a count_tokens API call per job.
+            tokens = _estimate_tokens(payload, system_prompt)
+            if tokens <= token_cap or not batch:
+                batch = candidate
+                cursor += 1
+                if tokens >= token_cap:
+                    break
+                continue
+            break
+
+        # Verify the finished batch with a single real count_tokens call.
+        payload = json.dumps([item for _, item in batch], ensure_ascii=False)
+        actual_tokens = _count_input_tokens(client, model, system_prompt, payload)
+        if actual_tokens > token_cap and len(batch) > 1:
+            print(
+                f"[warn] Batch estimated under cap but actual {actual_tokens} > {token_cap} "
+                f"input tokens ({len(batch)} jobs); consider lowering max_token_batch."
+            )
+        batches.append((batch, actual_tokens))
+
+    return batches
+
+
+def _count_input_tokens(client: genai.Client, model: str, system_prompt: str, payload: str) -> int:
+    prompt_configs: list[Any] = []
+    if hasattr(types, "CountTokensConfig"):
+        count_config = _build_config(types.CountTokensConfig, system_prompt)
+        if count_config is not None:
+            prompt_configs.append(count_config)
+    prompt_configs.append(types.GenerateContentConfig(system_instruction=system_prompt))
+    prompt_configs.append(None)
+
+    for config in prompt_configs:
+        try:
+            kwargs: dict[str, Any] = {"model": model, "contents": payload}
+            if config is not None:
+                kwargs["config"] = config
+            token_response = client.models.count_tokens(**kwargs)
+            token_count = _extract_token_count(token_response)
+            if token_count is not None:
+                return token_count
+        except TypeError:
+            continue
+        except Exception:
+            # Fall through to conservative estimate if token API is unavailable.
+            break
+
+    return _estimate_tokens(payload, system_prompt)
+
+
+def _extract_token_count(token_response: Any) -> int | None:
+    for attr in ("total_tokens", "total_token_count", "input_tokens"):
+        value = getattr(token_response, attr, None)
+        if isinstance(value, int):
+            return value
+    if isinstance(token_response, dict):
+        for key in ("total_tokens", "total_token_count", "input_tokens"):
+            value = token_response.get(key)
+            if isinstance(value, int):
+                return value
+    return None
+
+
+def _estimate_tokens(payload: str, system_prompt: str) -> int:
+    # Conservative fallback: 1 token ~= 3 characters for prompt-heavy JSON content.
+    return (len(payload) + len(system_prompt)) // 3 + 1
+
+
+def _build_config(config_type: Any, system_prompt: str) -> Any | None:
+    try:
+        return config_type(system_instruction=system_prompt)
+    except TypeError:
+        return None
 
 
 def _empty_summary() -> dict[str, int]:

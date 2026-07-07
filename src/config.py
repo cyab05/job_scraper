@@ -56,9 +56,10 @@ class FiltersConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    provider: Literal["groq"] = "groq"
+    provider: Literal["gemini"] = "gemini"
     model: str
-    batch_size: int = 20
+    max_token_batch: int = 100_000
+    batch_interval_seconds: int = 60
 
 
 class EmailConfig(BaseModel):
